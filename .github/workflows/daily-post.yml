@@ -36,5 +36,5 @@ jobs:
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
           BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
           # workflow_dispatch 수동 실행 시 입력값 우선, 스케줄 실행 시 기본값(true) 사용
-          BLOGGER_IS_DRAFT: ${{ github.event.inputs.is_draft || 'true' }}
+          BLOGGER_IS_DRAFT: ${{ github.event.inputs.is_draft || 'false' }}
         run: node index.js
