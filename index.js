@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { fetchTodayEvents, selectFeaturedEvents } from './lib/seoulData.js';
 import { scrapeEventPage } from './lib/scraper.js';
+import { findNearbyParking } from './lib/parking.js';
 import { generatePostForEvent } from './lib/generateContent.js';
 import { publishPost } from './lib/blogger.js';
 
@@ -11,12 +12,10 @@ async function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// 서울 API imageUrl → og:image 순으로 썸네일 결정
 function pickImage(event, ogImage) {
   return event.imageUrl || ogImage || null;
 }
 
-// 이미지를 포스트 HTML 맨 앞에 삽입
 function prependImage(html, imageUrl, altText) {
   if (!imageUrl) return html;
   const img = `<p><img src="${imageUrl}" alt="${altText}" style="max-width:100%;height:auto;border-radius:8px;" /></p>\n`;
@@ -40,10 +39,14 @@ async function main() {
     console.log(`\n[${i + 1}/${featured.length}] ${event.title}`);
 
     try {
-      const { text: scrapedText, ogImage } = await scrapeEventPage(event.orgLink);
-      const post = await generatePostForEvent(event, scrapedText);
+      // 병렬로 크롤링 + 주차장 검색
+      const [{ text: scrapedText, ogImage }, parkingLots] = await Promise.all([
+        scrapeEventPage(event.orgLink),
+        findNearbyParking(event.place),
+      ]);
 
-      // 이미지 선택 및 삽입
+      const post = await generatePostForEvent(event, scrapedText, parkingLots);
+
       const imageUrl = pickImage(event, ogImage);
       if (imageUrl) {
         post.html = prependImage(post.html, imageUrl, event.title);
