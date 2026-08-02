@@ -1,0 +1,16 @@
+# 환경변수 (API 키 노출 방지)
+.env
+.env.local
+
+# 의존성
+node_modules/
+
+# macOS
+.DS_Store
+
+# 에디터
+.vscode/
+.idea/
+
+# Claude Code
+.claude/

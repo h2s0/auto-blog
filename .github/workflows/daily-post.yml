@@ -1,0 +1,40 @@
+name: 서울 문화행사 블로그 자동 발행
+
+on:
+  schedule:
+    # UTC 00:00 = KST 09:00
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      is_draft:
+        description: "초안으로 저장할지 여부 (true=초안, false=즉시공개)"
+        required: false
+        default: "true"
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Node.js 설정
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: 패키지 설치
+        run: npm ci
+
+      - name: 블로그 포스트 생성 및 발행
+        env:
+          SEOUL_OPEN_DATA_API_KEY: ${{ secrets.SEOUL_OPEN_DATA_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
+          # workflow_dispatch 수동 실행 시 입력값 우선, 스케줄 실행 시 기본값(true) 사용
+          BLOGGER_IS_DRAFT: ${{ github.event.inputs.is_draft || 'true' }}
+        run: node index.js
