@@ -5,18 +5,28 @@ import { generatePostForEvent } from './lib/generateContent.js';
 import { publishPost } from './lib/blogger.js';
 
 const POSTS_PER_DAY = 3;
-// Gemini 무료 티어 분당 요청 제한 방어용 대기 (ms)
 const DELAY_BETWEEN_POSTS = 8000;
 
 async function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// 서울 API imageUrl → og:image 순으로 썸네일 결정
+function pickImage(event, ogImage) {
+  return event.imageUrl || ogImage || null;
+}
+
+// 이미지를 포스트 HTML 맨 앞에 삽입
+function prependImage(html, imageUrl, altText) {
+  if (!imageUrl) return html;
+  const img = `<p><img src="${imageUrl}" alt="${altText}" style="max-width:100%;height:auto;border-radius:8px;" /></p>\n`;
+  return img + html;
+}
+
 async function main() {
   console.log('=== 서울 소식 블로그 자동화 시작 ===');
   console.log(`실행 시각: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`);
 
-  // 1단계: 오늘 행사 수집 + 포스팅 대상 3개 선택
   const allEvents = await fetchTodayEvents();
   if (allEvents.length === 0) {
     console.log('오늘 진행 중인 행사가 없습니다. 종료합니다.');
@@ -24,27 +34,30 @@ async function main() {
   }
   const featured = selectFeaturedEvents(allEvents, POSTS_PER_DAY);
 
-  // 2~3단계: 각 행사별 크롤링 → 원고 생성 → 발행
   let successCount = 0;
   for (let i = 0; i < featured.length; i++) {
     const event = featured[i];
     console.log(`\n[${i + 1}/${featured.length}] ${event.title}`);
 
     try {
-      // 공식 페이지 크롤링
-      const scrapedText = await scrapeEventPage(event.orgLink);
-
-      // Gemini로 상세 포스트 생성
+      const { text: scrapedText, ogImage } = await scrapeEventPage(event.orgLink);
       const post = await generatePostForEvent(event, scrapedText);
 
-      // Blogger 발행
+      // 이미지 선택 및 삽입
+      const imageUrl = pickImage(event, ogImage);
+      if (imageUrl) {
+        post.html = prependImage(post.html, imageUrl, event.title);
+        console.log(`  이미지 첨부: ${imageUrl}`);
+      } else {
+        console.log('  이미지 없음');
+      }
+
       await publishPost(post);
       successCount++;
     } catch (err) {
       console.error(`  [오류] 이 행사 건너뜀: ${err.message}`);
     }
 
-    // 마지막 행사가 아니면 잠시 대기 (API 제한 방어)
     if (i < featured.length - 1) {
       console.log(`  ${DELAY_BETWEEN_POSTS / 1000}초 대기 중...`);
       await sleep(DELAY_BETWEEN_POSTS);
