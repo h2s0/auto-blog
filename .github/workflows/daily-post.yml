@@ -35,6 +35,8 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
           BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
+          KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
+          POLICY_NEWS_API_KEY: ${{ secrets.POLICY_NEWS_API_KEY }}
           # 수동 실행 시 입력값 우선, 스케줄 자동 실행 시만 공개 (false)
           BLOGGER_IS_DRAFT: ${{ github.event.inputs.is_draft || (github.event_name == 'schedule' && 'false') || 'true' }}
         run: node index.js

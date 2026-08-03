@@ -1,9 +1,10 @@
 import 'dotenv/config';
 import { fetchTodayEvents, selectFeaturedEvents } from './lib/seoulData.js';
 import { fetchFreeFacilities, selectFeaturedDistrict } from './lib/seoulFacilityData.js';
+import { fetchTodayPolicyNews } from './lib/policyNewsData.js';
 import { scrapeEventPage } from './lib/scraper.js';
 import { findNearbyParking } from './lib/parking.js';
-import { generatePostForEvent, generatePostForFacilities } from './lib/generateContent.js';
+import { generatePostForEvent, generatePostForFacilities, generatePostForPolicyNews } from './lib/generateContent.js';
 import { publishPost } from './lib/blogger.js';
 
 const POSTS_PER_DAY = 3;
@@ -105,6 +106,32 @@ async function runFacilityPipeline() {
   }
 }
 
+// ─── 정책뉴스 파이프라인 (토요일) ─────────────────────────────────────────────
+
+async function runPolicyNewsPipeline() {
+  let newsItems;
+  try {
+    newsItems = await fetchTodayPolicyNews();
+  } catch (err) {
+    console.log(`[policyNews] 수집 실패 (문화행사로 대체): ${err.message}`);
+    return runEventPipeline();
+  }
+
+  if (newsItems.length < 2) {
+    console.log('[policyNews] 관련 뉴스 부족 — 문화행사 파이프라인으로 대체');
+    return runEventPipeline();
+  }
+
+  try {
+    const post = await generatePostForPolicyNews(newsItems);
+    await publishPost(post);
+    return 1;
+  } catch (err) {
+    console.error(`  [오류] 정책뉴스 포스트 실패: ${err.message}`);
+    return 0;
+  }
+}
+
 // ─── 메인 ─────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -123,8 +150,13 @@ async function main() {
     console.log('모드: 구별 무료 문화 프로그램 모음');
     totalCount = 1;
     successCount = await runFacilityPipeline();
+  } else if (dayOfWeek === 6) {
+    // 토요일 → 정책뉴스 모음 포스트
+    console.log('모드: 오늘의 정책뉴스');
+    totalCount = 1;
+    successCount = await runPolicyNewsPipeline();
   } else {
-    // 월/수/금/토/일 → 문화행사 포스트 3개
+    // 월/수/금/일 → 문화행사 포스트 3개
     console.log('모드: 오늘의 서울 문화행사');
     successCount = await runEventPipeline();
     totalCount = POSTS_PER_DAY;
