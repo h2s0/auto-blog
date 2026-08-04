@@ -14,6 +14,24 @@ async function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+async function sendDiscordNotification(publishedPosts) {
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+  if (!webhookUrl || !publishedPosts.length) return;
+  try {
+    const lines = publishedPosts.map((p, i) => `**${i + 1}.** [${p.title}](${p.url})`).join('\n');
+    const kstNow = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: `📝 **블로그 자동 발행 완료** (${kstNow})\n${lines}`,
+      }),
+    });
+  } catch (e) {
+    console.log(`[discord] 알림 전송 실패 (무시): ${e.message}`);
+  }
+}
+
 function pickImage(event, ogImage) {
   return event.imageUrl || ogImage || null;
 }
@@ -30,11 +48,12 @@ async function runEventPipeline() {
   const allEvents = await fetchTodayEvents();
   if (allEvents.length === 0) {
     console.log('오늘 진행 중인 행사가 없습니다. 종료합니다.');
-    return 0;
+    return { count: 0, posts: [] };
   }
   const featured = selectFeaturedEvents(allEvents, POSTS_PER_DAY);
 
   let successCount = 0;
+  const publishedPosts = [];
   for (let i = 0; i < featured.length; i++) {
     const event = featured[i];
     console.log(`\n[${i + 1}/${featured.length}] ${event.title}`);
@@ -55,7 +74,8 @@ async function runEventPipeline() {
         console.log('  이미지 없음');
       }
 
-      await publishPost(post);
+      const published = await publishPost(post);
+      publishedPosts.push({ title: post.title, url: published.url });
       successCount++;
     } catch (err) {
       console.error(`  [오류] 이 행사 건너뜀: ${err.message}`);
@@ -66,7 +86,7 @@ async function runEventPipeline() {
       await sleep(DELAY_BETWEEN_POSTS);
     }
   }
-  return successCount;
+  return { count: successCount, posts: publishedPosts };
 }
 
 // ─── 구별 무료공간 파이프라인 (화/목) ────────────────────────────────────────
@@ -75,12 +95,11 @@ async function runFacilityPipeline() {
   const allFacilities = await fetchFreeFacilities();
   if (allFacilities.length === 0) {
     console.log('이용 가능한 무료 시설이 없습니다. 종료합니다.');
-    return 0;
+    return { count: 0, posts: [] };
   }
 
   const { district, facilities } = selectFeaturedDistrict(allFacilities, 5);
 
-  // 각 시설의 주차장 정보 수집 (인덱스 → 주차장 목록 매핑)
   const parkingMap = {};
   await Promise.all(
     facilities.map(async (f, i) => {
@@ -91,18 +110,17 @@ async function runFacilityPipeline() {
   try {
     const post = await generatePostForFacilities(district, facilities, parkingMap);
 
-    // 대표 이미지: 첫 시설 이미지 사용
     const imageUrl = facilities[0]?.imageUrl || null;
     if (imageUrl) {
       post.html = prependImage(post.html, imageUrl, `${district} 무료 문화 프로그램`);
       console.log(`  이미지 첨부: ${imageUrl}`);
     }
 
-    await publishPost(post);
-    return 1;
+    const published = await publishPost(post);
+    return { count: 1, posts: [{ title: post.title, url: published.url }] };
   } catch (err) {
     console.error(`  [오류] 무료공간 포스트 실패: ${err.message}`);
-    return 0;
+    return { count: 0, posts: [] };
   }
 }
 
@@ -124,11 +142,11 @@ async function runPolicyNewsPipeline() {
 
   try {
     const post = await generatePostForPolicyNews(newsItems);
-    await publishPost(post);
-    return 1;
+    const published = await publishPost(post);
+    return { count: 1, posts: [{ title: post.title, url: published.url }] };
   } catch (err) {
     console.error(`  [오류] 정책뉴스 포스트 실패: ${err.message}`);
-    return 0;
+    return { count: 0, posts: [] };
   }
 }
 
@@ -142,27 +160,24 @@ async function main() {
   const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
   console.log(`오늘 요일: ${DAY_NAMES[dayOfWeek]}요일`);
 
-  let successCount = 0;
-  let totalCount = 0;
+  let result;
 
   if (dayOfWeek === 2 || dayOfWeek === 4) {
-    // 화요일, 목요일 → 구별 무료공간 모음 포스트
     console.log('모드: 구별 무료 문화 프로그램 모음');
-    totalCount = 1;
-    successCount = await runFacilityPipeline();
+    result = await runFacilityPipeline();
   } else if (dayOfWeek === 6) {
-    // 토요일 → 정책뉴스 모음 포스트
     console.log('모드: 오늘의 정책뉴스');
-    totalCount = 1;
-    successCount = await runPolicyNewsPipeline();
+    result = await runPolicyNewsPipeline();
   } else {
-    // 월/수/금/일 → 문화행사 포스트 3개
     console.log('모드: 오늘의 서울 문화행사');
-    successCount = await runEventPipeline();
-    totalCount = POSTS_PER_DAY;
+    result = await runEventPipeline();
   }
 
-  console.log(`\n=== 완료: ${successCount}/${totalCount}개 포스팅 발행 ===`);
+  const { count, posts } = result;
+  const totalCount = dayOfWeek === 2 || dayOfWeek === 4 || dayOfWeek === 6 ? 1 : POSTS_PER_DAY;
+  console.log(`\n=== 완료: ${count}/${totalCount}개 포스팅 발행 ===`);
+
+  await sendDiscordNotification(posts);
 }
 
 main().catch((err) => {
