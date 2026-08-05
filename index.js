@@ -18,13 +18,18 @@ async function sendDiscordNotification(publishedPosts) {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl || !publishedPosts.length) return;
   try {
-    const lines = publishedPosts.map((p, i) => `**${i + 1}.** [${p.title}](${p.url})`).join('\n');
+    const isDraft = process.env.BLOGGER_IS_DRAFT !== 'false';
     const kstNow = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+    const lines = publishedPosts.map((p, i) => {
+      const link = p.editUrl ?? p.url;
+      return `**${i + 1}.** [${p.title}](${link})`;
+    }).join('\n');
+    const status = isDraft ? '초안 저장됨 — 확인 후 발행해주세요 ✅' : '즉시 발행 완료';
     await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        content: `📝 **블로그 자동 발행 완료** (${kstNow})\n${lines}`,
+        content: `📝 **블로그 포스트 ${status}** (${kstNow})\n${lines}`,
       }),
     });
   } catch (e) {
@@ -75,7 +80,7 @@ async function runEventPipeline() {
       }
 
       const published = await publishPost(post);
-      publishedPosts.push({ title: post.title, url: published.url });
+      publishedPosts.push({ title: post.title, url: published.url, editUrl: published.editUrl });
       successCount++;
     } catch (err) {
       console.error(`  [오류] 이 행사 건너뜀: ${err.message}`);
@@ -117,7 +122,7 @@ async function runFacilityPipeline() {
     }
 
     const published = await publishPost(post);
-    return { count: 1, posts: [{ title: post.title, url: published.url }] };
+    return { count: 1, posts: [{ title: post.title, url: published.url, editUrl: published.editUrl }] };
   } catch (err) {
     console.error(`  [오류] 무료공간 포스트 실패: ${err.message}`);
     return { count: 0, posts: [] };
@@ -143,7 +148,7 @@ async function runPolicyNewsPipeline() {
   try {
     const post = await generatePostForPolicyNews(newsItems);
     const published = await publishPost(post);
-    return { count: 1, posts: [{ title: post.title, url: published.url }] };
+    return { count: 1, posts: [{ title: post.title, url: published.url, editUrl: published.editUrl }] };
   } catch (err) {
     console.error(`  [오류] 정책뉴스 포스트 실패: ${err.message}`);
     return { count: 0, posts: [] };
