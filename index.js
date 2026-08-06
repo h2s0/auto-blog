@@ -5,9 +5,8 @@ import { fetchTodayPolicyNews } from './lib/policyNewsData.js';
 import { scrapeEventPage } from './lib/scraper.js';
 import { findNearbyParking } from './lib/parking.js';
 import { generatePostForEvent, generatePostForFacilities, generatePostForPolicyNews } from './lib/generateContent.js';
-import { publishPost } from './lib/blogger.js';
+import { publishPost, fetchTodayPosts } from './lib/blogger.js';
 
-const POSTS_PER_DAY = 3;
 const DELAY_BETWEEN_POSTS = 8000;
 
 async function sleep(ms) {
@@ -18,18 +17,13 @@ async function sendDiscordNotification(publishedPosts) {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl || !publishedPosts.length) return;
   try {
-    const isDraft = process.env.BLOGGER_IS_DRAFT !== 'false';
     const kstNow = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
-    const lines = publishedPosts.map((p, i) => {
-      const link = p.editUrl ?? p.url;
-      return `**${i + 1}.** [${p.title}](${link})`;
-    }).join('\n');
-    const status = isDraft ? '초안 저장됨 — 확인 후 발행해주세요 ✅' : '즉시 발행 완료';
+    const lines = publishedPosts.map((p, i) => `**${i + 1}.** [${p.title}](${p.url})`).join('\n');
     await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        content: `📝 **블로그 포스트 ${status}** (${kstNow})\n${lines}`,
+        content: `📝 **블로그 포스트 발행 완료** (${kstNow})\n${lines}`,
       }),
     });
   } catch (e) {
@@ -47,56 +41,73 @@ function prependImage(html, imageUrl, altText) {
   return img + html;
 }
 
+// ─── 오늘 발행된 포스트 제목 목록 조회 (중복 방지) ────────────────────────────
+
+async function getPostedTitlesCount() {
+  try {
+    const posts = await fetchTodayPosts();
+    return { titles: posts.map((p) => p.title), count: posts.length };
+  } catch (e) {
+    console.log(`[중복방지] 오늘 포스트 조회 실패 (무시): ${e.message}`);
+    return { titles: [], count: 0 };
+  }
+}
+
 // ─── 문화행사 파이프라인 (월/수/금/일 + 기본값) ──────────────────────────────
 
-async function runEventPipeline() {
+async function runEventPipeline(alreadyPostedTitles = []) {
   const allEvents = await fetchTodayEvents();
   if (allEvents.length === 0) {
     console.log('오늘 진행 중인 행사가 없습니다. 종료합니다.');
     return { count: 0, posts: [] };
   }
-  const featured = selectFeaturedEvents(allEvents, POSTS_PER_DAY);
 
-  let successCount = 0;
-  const publishedPosts = [];
-  for (let i = 0; i < featured.length; i++) {
-    const event = featured[i];
-    console.log(`\n[${i + 1}/${featured.length}] ${event.title}`);
-
-    try {
-      const [{ text: scrapedText, ogImage }, parkingLots] = await Promise.all([
-        scrapeEventPage(event.orgLink),
-        findNearbyParking(event.place, 3, { lat: event.lat, lon: event.lon }),
-      ]);
-
-      const post = await generatePostForEvent(event, scrapedText, parkingLots);
-
-      const imageUrl = pickImage(event, ogImage);
-      if (imageUrl) {
-        post.html = prependImage(post.html, imageUrl, event.title);
-        console.log(`  이미지 첨부: ${imageUrl}`);
-      } else {
-        console.log('  이미지 없음');
-      }
-
-      const published = await publishPost(post);
-      publishedPosts.push({ title: post.title, url: published.url, editUrl: published.editUrl });
-      successCount++;
-    } catch (err) {
-      console.error(`  [오류] 이 행사 건너뜀: ${err.message}`);
-    }
-
-    if (i < featured.length - 1) {
-      console.log(`  ${DELAY_BETWEEN_POSTS / 1000}초 대기 중...`);
-      await sleep(DELAY_BETWEEN_POSTS);
-    }
+  // 이미 발행된 행사 제목과 겹치는 것 제외
+  const filtered = allEvents.filter(
+    (e) => !alreadyPostedTitles.some((t) => t.includes(e.title.substring(0, 10)))
+  );
+  if (filtered.length === 0) {
+    console.log('오늘 행사가 이미 모두 발행되었습니다. 종료합니다.');
+    return { count: 0, posts: [] };
   }
-  return { count: successCount, posts: publishedPosts };
+
+  // 1개만 선택
+  const featured = selectFeaturedEvents(filtered, 1);
+  const event = featured[0];
+  console.log(`\n[1/1] ${event.title}`);
+
+  try {
+    const [{ text: scrapedText, ogImage }, parkingLots] = await Promise.all([
+      scrapeEventPage(event.orgLink),
+      findNearbyParking(event.place, 3, { lat: event.lat, lon: event.lon }),
+    ]);
+
+    const post = await generatePostForEvent(event, scrapedText, parkingLots);
+
+    const imageUrl = pickImage(event, ogImage);
+    if (imageUrl) {
+      post.html = prependImage(post.html, imageUrl, event.title);
+      console.log(`  이미지 첨부: ${imageUrl}`);
+    } else {
+      console.log('  이미지 없음');
+    }
+
+    const published = await publishPost(post);
+    return { count: 1, posts: [{ title: post.title, url: published.url }] };
+  } catch (err) {
+    console.error(`  [오류] 행사 포스트 실패: ${err.message}`);
+    return { count: 0, posts: [] };
+  }
 }
 
 // ─── 구별 무료공간 파이프라인 (화/목) ────────────────────────────────────────
 
-async function runFacilityPipeline() {
+async function runFacilityPipeline(alreadyPostedCount = 0) {
+  if (alreadyPostedCount > 0) {
+    console.log('오늘 이미 포스트가 발행되었습니다 (화/목는 하루 1회만). 종료합니다.');
+    return { count: 0, posts: [] };
+  }
+
   const allFacilities = await fetchFreeFacilities();
   if (allFacilities.length === 0) {
     console.log('이용 가능한 무료 시설이 없습니다. 종료합니다.');
@@ -122,7 +133,7 @@ async function runFacilityPipeline() {
     }
 
     const published = await publishPost(post);
-    return { count: 1, posts: [{ title: post.title, url: published.url, editUrl: published.editUrl }] };
+    return { count: 1, posts: [{ title: post.title, url: published.url }] };
   } catch (err) {
     console.error(`  [오류] 무료공간 포스트 실패: ${err.message}`);
     return { count: 0, posts: [] };
@@ -131,24 +142,29 @@ async function runFacilityPipeline() {
 
 // ─── 정책뉴스 파이프라인 (토요일) ─────────────────────────────────────────────
 
-async function runPolicyNewsPipeline() {
+async function runPolicyNewsPipeline(alreadyPostedCount = 0) {
+  if (alreadyPostedCount > 0) {
+    console.log('오늘 이미 포스트가 발행되었습니다 (토는 하루 1회만). 종료합니다.');
+    return { count: 0, posts: [] };
+  }
+
   let newsItems;
   try {
     newsItems = await fetchTodayPolicyNews();
   } catch (err) {
     console.log(`[policyNews] 수집 실패 (문화행사로 대체): ${err.message}`);
-    return runEventPipeline();
+    return runEventPipeline([]);
   }
 
   if (newsItems.length < 2) {
     console.log('[policyNews] 관련 뉴스 부족 — 문화행사 파이프라인으로 대체');
-    return runEventPipeline();
+    return runEventPipeline([]);
   }
 
   try {
     const post = await generatePostForPolicyNews(newsItems);
     const published = await publishPost(post);
-    return { count: 1, posts: [{ title: post.title, url: published.url, editUrl: published.editUrl }] };
+    return { count: 1, posts: [{ title: post.title, url: published.url }] };
   } catch (err) {
     console.error(`  [오류] 정책뉴스 포스트 실패: ${err.message}`);
     return { count: 0, posts: [] };
@@ -165,22 +181,26 @@ async function main() {
   const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
   console.log(`오늘 요일: ${DAY_NAMES[dayOfWeek]}요일`);
 
+  const { titles: alreadyPostedTitles, count: alreadyPostedCount } = await getPostedTitlesCount();
+  if (alreadyPostedCount > 0) {
+    console.log(`오늘 이미 발행된 포스트: ${alreadyPostedCount}개`);
+  }
+
   let result;
 
   if (dayOfWeek === 2 || dayOfWeek === 4) {
     console.log('모드: 구별 무료 문화 프로그램 모음');
-    result = await runFacilityPipeline();
+    result = await runFacilityPipeline(alreadyPostedCount);
   } else if (dayOfWeek === 6) {
     console.log('모드: 오늘의 정책뉴스');
-    result = await runPolicyNewsPipeline();
+    result = await runPolicyNewsPipeline(alreadyPostedCount);
   } else {
     console.log('모드: 오늘의 서울 문화행사');
-    result = await runEventPipeline();
+    result = await runEventPipeline(alreadyPostedTitles);
   }
 
   const { count, posts } = result;
-  const totalCount = dayOfWeek === 2 || dayOfWeek === 4 || dayOfWeek === 6 ? 1 : POSTS_PER_DAY;
-  console.log(`\n=== 완료: ${count}/${totalCount}개 포스팅 발행 ===`);
+  console.log(`\n=== 완료: ${count}개 포스팅 발행 ===`);
 
   await sendDiscordNotification(posts);
 }

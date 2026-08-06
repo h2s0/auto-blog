@@ -2,14 +2,13 @@ name: 서울 문화행사 블로그 자동 발행
 
 on:
   schedule:
-    # UTC 00:00 = KST 09:00
+    # KST 09:00 (UTC 00:00)
     - cron: "0 0 * * *"
+    # KST 12:00 (UTC 03:00) — 화/목/토 제외 (당일 1회 제한 로직이 index.js에서 처리)
+    - cron: "0 3 * * 0,1,3,5"
+    # KST 15:00 (UTC 06:00) — 화/목/토 제외
+    - cron: "0 6 * * 0,1,3,5"
   workflow_dispatch:
-    inputs:
-      is_draft:
-        description: "초안으로 저장할지 여부 (true=초안, false=즉시공개)"
-        required: false
-        default: "true"
 
 jobs:
   post:
@@ -38,6 +37,5 @@ jobs:
           KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
           POLICY_NEWS_API_KEY: ${{ secrets.POLICY_NEWS_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          # 항상 초안 저장 — Discord 확인 후 Blogger에서 수동 발행
-          BLOGGER_IS_DRAFT: ${{ github.event.inputs.is_draft || 'true' }}
+          BLOGGER_IS_DRAFT: "false"
         run: node index.js
