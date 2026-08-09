@@ -55,7 +55,7 @@ async function getPostedTitlesCount() {
 
 // ─── 문화행사 파이프라인 (월/수/금/일 + 기본값) ──────────────────────────────
 
-async function runEventPipeline(alreadyPostedTitles = []) {
+async function runEventPipeline(alreadyPostedTitles = [], runIndex = 0) {
   const allEvents = await fetchTodayEvents();
   if (allEvents.length === 0) {
     console.log('오늘 진행 중인 행사가 없습니다. 종료합니다.');
@@ -71,8 +71,8 @@ async function runEventPipeline(alreadyPostedTitles = []) {
     return { count: 0, posts: [] };
   }
 
-  // 1개만 선택
-  const featured = selectFeaturedEvents(filtered, 1);
+  // runIndex 순위 행사 선택 (9시=0등, 12시=1등, 15시=2등)
+  const featured = selectFeaturedEvents(filtered, 1, runIndex);
   const event = featured[0];
   console.log(`\n[1/1] ${event.title}`);
 
@@ -181,6 +181,10 @@ async function main() {
   const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
   console.log(`오늘 요일: ${DAY_NAMES[dayOfWeek]}요일`);
 
+  const kstHour = parseInt(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul', hour: 'numeric', hour12: false }));
+  const runIndex = kstHour >= 15 ? 2 : kstHour >= 12 ? 1 : 0;
+  console.log(`실행 순번: ${runIndex + 1}번째 (KST ${kstHour}시)`);
+
   const { titles: alreadyPostedTitles, count: alreadyPostedCount } = await getPostedTitlesCount();
   if (alreadyPostedCount > 0) {
     console.log(`오늘 이미 발행된 포스트: ${alreadyPostedCount}개`);
@@ -196,7 +200,7 @@ async function main() {
     result = await runPolicyNewsPipeline(alreadyPostedCount);
   } else {
     console.log('모드: 오늘의 서울 문화행사');
-    result = await runEventPipeline(alreadyPostedTitles);
+    result = await runEventPipeline(alreadyPostedTitles, runIndex);
   }
 
   const { count, posts } = result;
