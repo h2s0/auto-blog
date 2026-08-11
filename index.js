@@ -114,7 +114,7 @@ async function runFacilityPipeline(alreadyPostedCount = 0) {
     return { count: 0, posts: [] };
   }
 
-  const { district, facilities } = selectFeaturedDistrict(allFacilities, 5);
+  const { district, facilities } = selectFeaturedDistrict(allFacilities, 3);
 
   const parkingMap = {};
   await Promise.all(
