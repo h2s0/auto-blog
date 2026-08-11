@@ -31,6 +31,23 @@ async function sendDiscordNotification(publishedPosts) {
   }
 }
 
+async function sendDiscordError(errorMessage) {
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) return;
+  try {
+    const kstNow = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: `⚠️ **블로그 발행 실패** (${kstNow})\n\`\`\`${errorMessage}\`\`\``,
+      }),
+    });
+  } catch (e) {
+    console.log(`[discord] 오류 알림 전송 실패 (무시): ${e.message}`);
+  }
+}
+
 function pickImage(event, ogImage) {
   return event.imageUrl || ogImage || null;
 }
@@ -59,19 +76,17 @@ async function runEventPipeline(alreadyPostedTitles = [], runIndex = 0) {
   const allEvents = await fetchTodayEvents();
   if (allEvents.length === 0) {
     console.log('오늘 진행 중인 행사가 없습니다. 종료합니다.');
-    return { count: 0, posts: [] };
+    return { count: 0, posts: [], error: null };
   }
 
-  // 이미 발행된 행사 제목과 겹치는 것 제외
   const filtered = allEvents.filter(
     (e) => !alreadyPostedTitles.some((t) => t.includes(e.title.substring(0, 10)))
   );
   if (filtered.length === 0) {
     console.log('오늘 행사가 이미 모두 발행되었습니다. 종료합니다.');
-    return { count: 0, posts: [] };
+    return { count: 0, posts: [], error: null };
   }
 
-  // runIndex 순위 행사 선택 (9시=0등, 12시=1등, 15시=2등)
   const featured = selectFeaturedEvents(filtered, 1, runIndex);
   const event = featured[0];
   console.log(`\n[1/1] ${event.title}`);
@@ -93,10 +108,10 @@ async function runEventPipeline(alreadyPostedTitles = [], runIndex = 0) {
     }
 
     const published = await publishPost(post);
-    return { count: 1, posts: [{ title: post.title, url: published.url }] };
+    return { count: 1, posts: [{ title: post.title, url: published.url }], error: null };
   } catch (err) {
     console.error(`  [오류] 행사 포스트 실패: ${err.message}`);
-    return { count: 0, posts: [] };
+    return { count: 0, posts: [], error: `행사 포스트 실패: ${err.message}` };
   }
 }
 
@@ -105,38 +120,44 @@ async function runEventPipeline(alreadyPostedTitles = [], runIndex = 0) {
 async function runFacilityPipeline(alreadyPostedCount = 0) {
   if (alreadyPostedCount > 0) {
     console.log('오늘 이미 포스트가 발행되었습니다 (화/목는 하루 1회만). 종료합니다.');
-    return { count: 0, posts: [] };
+    return { count: 0, posts: [], error: null };
   }
 
   const allFacilities = await fetchFreeFacilities();
   if (allFacilities.length === 0) {
     console.log('이용 가능한 무료 시설이 없습니다. 종료합니다.');
-    return { count: 0, posts: [] };
+    return { count: 0, posts: [], error: null };
   }
 
-  const { district, facilities } = selectFeaturedDistrict(allFacilities, 3);
+  // 3개로 시도, 실패 시 2개로 재시도
+  for (const facilityCount of [3, 2]) {
+    const { district, facilities } = selectFeaturedDistrict(allFacilities, facilityCount);
 
-  const parkingMap = {};
-  await Promise.all(
-    facilities.map(async (f, i) => {
-      parkingMap[i] = await findNearbyParking(f.place, 2, { lat: f.lat, lon: f.lon });
-    })
-  );
+    const parkingMap = {};
+    await Promise.all(
+      facilities.map(async (f, i) => {
+        parkingMap[i] = await findNearbyParking(f.place, 2, { lat: f.lat, lon: f.lon });
+      })
+    );
 
-  try {
-    const post = await generatePostForFacilities(district, facilities, parkingMap);
+    try {
+      const post = await generatePostForFacilities(district, facilities, parkingMap);
 
-    const imageUrl = facilities[0]?.imageUrl || null;
-    if (imageUrl) {
-      post.html = prependImage(post.html, imageUrl, `${district} 무료 문화 프로그램`);
-      console.log(`  이미지 첨부: ${imageUrl}`);
+      const imageUrl = facilities[0]?.imageUrl || null;
+      if (imageUrl) {
+        post.html = prependImage(post.html, imageUrl, `${district} 무료 문화 프로그램`);
+        console.log(`  이미지 첨부: ${imageUrl}`);
+      }
+
+      const published = await publishPost(post);
+      return { count: 1, posts: [{ title: post.title, url: published.url }], error: null };
+    } catch (err) {
+      console.error(`  [오류] 무료공간 포스트 실패 (시설 ${facilityCount}개): ${err.message}`);
+      if (facilityCount === 2) {
+        return { count: 0, posts: [], error: `무료공간 포스트 실패: ${err.message}` };
+      }
+      console.log('  시설 수 줄여서 재시도합니다...');
     }
-
-    const published = await publishPost(post);
-    return { count: 1, posts: [{ title: post.title, url: published.url }] };
-  } catch (err) {
-    console.error(`  [오류] 무료공간 포스트 실패: ${err.message}`);
-    return { count: 0, posts: [] };
   }
 }
 
@@ -145,7 +166,7 @@ async function runFacilityPipeline(alreadyPostedCount = 0) {
 async function runPolicyNewsPipeline(alreadyPostedCount = 0) {
   if (alreadyPostedCount > 0) {
     console.log('오늘 이미 포스트가 발행되었습니다 (토는 하루 1회만). 종료합니다.');
-    return { count: 0, posts: [] };
+    return { count: 0, posts: [], error: null };
   }
 
   let newsItems;
@@ -164,10 +185,10 @@ async function runPolicyNewsPipeline(alreadyPostedCount = 0) {
   try {
     const post = await generatePostForPolicyNews(newsItems);
     const published = await publishPost(post);
-    return { count: 1, posts: [{ title: post.title, url: published.url }] };
+    return { count: 1, posts: [{ title: post.title, url: published.url }], error: null };
   } catch (err) {
     console.error(`  [오류] 정책뉴스 포스트 실패: ${err.message}`);
-    return { count: 0, posts: [] };
+    return { count: 0, posts: [], error: `정책뉴스 포스트 실패: ${err.message}` };
   }
 }
 
@@ -177,7 +198,7 @@ async function main() {
   console.log('=== 서울 소식 블로그 자동화 시작 ===');
   console.log(`실행 시각: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`);
 
-  const dayOfWeek = new Date().getDay(); // 0=일, 1=월, 2=화, 3=수, 4=목, 5=금, 6=토
+  const dayOfWeek = new Date().getDay();
   const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
   console.log(`오늘 요일: ${DAY_NAMES[dayOfWeek]}요일`);
 
@@ -203,13 +224,18 @@ async function main() {
     result = await runEventPipeline(alreadyPostedTitles, runIndex);
   }
 
-  const { count, posts } = result;
+  const { count, posts, error } = result;
   console.log(`\n=== 완료: ${count}개 포스팅 발행 ===`);
 
-  await sendDiscordNotification(posts);
+  if (error) {
+    await sendDiscordError(error);
+  } else {
+    await sendDiscordNotification(posts);
+  }
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error('[치명적 오류]', err.message);
+  await sendDiscordError(`치명적 오류: ${err.message}`);
   process.exit(1);
 });
