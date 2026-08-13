@@ -11,6 +11,17 @@ on:
     # KST 18:00 (UTC 09:00) — 4번째 포스팅: 전시 소식, 요일 무관 매일 실행
     - cron: "0 9 * * *"
   workflow_dispatch:
+    inputs:
+      force_exhibition:
+        description: "전시 소식 파이프라인만 강제 실행 (테스트용)"
+        type: boolean
+        required: false
+        default: false
+      is_draft:
+        description: "초안으로 저장 (테스트 시 체크 권장)"
+        type: boolean
+        required: false
+        default: true
 
 jobs:
   post:
@@ -39,5 +50,6 @@ jobs:
           KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
           POLICY_NEWS_API_KEY: ${{ secrets.POLICY_NEWS_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          BLOGGER_IS_DRAFT: "false"
+          FORCE_EXHIBITION: ${{ github.event.inputs.force_exhibition }}
+          BLOGGER_IS_DRAFT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.is_draft || 'false' }}
         run: node index.js

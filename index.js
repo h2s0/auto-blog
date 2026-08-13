@@ -252,7 +252,11 @@ async function main() {
 
   let result;
 
-  if (kstHour >= 17) {
+  if (process.env.FORCE_EXHIBITION === 'true') {
+    // 수동 테스트용: 요일/시간 무시하고 전시 소식만 강제 실행, 당일 중복 체크도 건너뜀
+    console.log('모드: [강제 실행] 서울 전시 소식');
+    result = await runExhibitionPipeline([]);
+  } else if (kstHour >= 17) {
     // 4번째 포스팅: 요일과 무관하게 매일 실행
     console.log('모드: 서울 전시 소식 (신규 개막·얼리버드 티켓·개관예정)');
     result = await runExhibitionPipeline(alreadyPostedTitles);
