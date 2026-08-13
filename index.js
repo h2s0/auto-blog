@@ -2,10 +2,12 @@ import 'dotenv/config';
 import { fetchTodayEvents, selectFeaturedEvents } from './lib/seoulData.js';
 import { fetchFreeFacilities, selectFeaturedDistrict } from './lib/seoulFacilityData.js';
 import { fetchTodayPolicyNews } from './lib/policyNewsData.js';
-import { scrapeEventPage } from './lib/scraper.js';
+import { fetchExhibitionNews } from './lib/exhibitionNewsData.js';
+import { scrapeEventPage, fetchOgImage } from './lib/scraper.js';
 import { findNearbyParking } from './lib/parking.js';
-import { generatePostForEvent, generatePostForFacilities, generatePostForPolicyNews } from './lib/generateContent.js';
+import { generatePostForEvent, generatePostForFacilities, generatePostForPolicyNews, generatePostForExhibitionNews } from './lib/generateContent.js';
 import { publishPost, fetchTodayPosts } from './lib/blogger.js';
+import { getKstDayOfWeek } from './lib/kstDate.js';
 
 const DELAY_BETWEEN_POSTS = 8000;
 
@@ -192,13 +194,50 @@ async function runPolicyNewsPipeline(alreadyPostedCount = 0) {
   }
 }
 
+// ─── 전시 소식 파이프라인 (매일, 4번째 포스팅) ─────────────────────────────────
+
+async function runExhibitionPipeline(alreadyPostedTitles = []) {
+  if (alreadyPostedTitles.some((t) => t.includes('전시 소식'))) {
+    console.log('오늘 전시 소식이 이미 발행되었습니다. 종료합니다.');
+    return { count: 0, posts: [], error: null };
+  }
+
+  let newsItems;
+  try {
+    newsItems = await fetchExhibitionNews();
+  } catch (err) {
+    console.error(`  [오류] 전시 소식 수집 실패: ${err.message}`);
+    return { count: 0, posts: [], error: `전시 소식 수집 실패: ${err.message}` };
+  }
+
+  if (newsItems.length < 3) {
+    console.log('[exhibitionNews] 채택할 만한 소식 부족 — 오늘은 건너뜁니다.');
+    return { count: 0, posts: [], error: null };
+  }
+
+  try {
+    const withImages = await Promise.all(
+      newsItems.map(async (n) => ({ ...n, imageUrl: await fetchOgImage(n.link) }))
+    );
+    const withImageCount = withImages.filter((n) => n.imageUrl).length;
+    console.log(`[exhibitionNews] 이미지 수집: ${withImageCount}/${withImages.length}건`);
+
+    const post = await generatePostForExhibitionNews(withImages);
+    const published = await publishPost(post);
+    return { count: 1, posts: [{ title: post.title, url: published.url }], error: null };
+  } catch (err) {
+    console.error(`  [오류] 전시 소식 포스트 실패: ${err.message}`);
+    return { count: 0, posts: [], error: `전시 소식 포스트 실패: ${err.message}` };
+  }
+}
+
 // ─── 메인 ─────────────────────────────────────────────────────────────────────
 
 async function main() {
   console.log('=== 서울 소식 블로그 자동화 시작 ===');
   console.log(`실행 시각: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`);
 
-  const dayOfWeek = new Date().getDay();
+  const dayOfWeek = getKstDayOfWeek();
   const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
   console.log(`오늘 요일: ${DAY_NAMES[dayOfWeek]}요일`);
 
@@ -213,7 +252,11 @@ async function main() {
 
   let result;
 
-  if (dayOfWeek === 2 || dayOfWeek === 4) {
+  if (kstHour >= 17) {
+    // 4번째 포스팅: 요일과 무관하게 매일 실행
+    console.log('모드: 서울 전시 소식 (신규 개막·얼리버드 티켓·개관예정)');
+    result = await runExhibitionPipeline(alreadyPostedTitles);
+  } else if (dayOfWeek === 2 || dayOfWeek === 4) {
     console.log('모드: 구별 무료 문화 프로그램 모음');
     result = await runFacilityPipeline(alreadyPostedCount);
   } else if (dayOfWeek === 6) {
