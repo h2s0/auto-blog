@@ -1,11 +1,15 @@
 import 'dotenv/config';
+import { readFileSync } from 'fs';
 import { fetchTodayEvents, selectFeaturedEvents } from './lib/seoulData.js';
 import { fetchFreeFacilities, selectFeaturedDistrict } from './lib/seoulFacilityData.js';
 import { fetchTodayPolicyNews } from './lib/policyNewsData.js';
+import { fetchLhNotices } from './lib/lhData.js';
 import { scrapeEventPage } from './lib/scraper.js';
 import { findNearbyParking } from './lib/parking.js';
-import { generatePostForEvent, generatePostForFacilities, generatePostForPolicyNews } from './lib/generateContent.js';
+import { generatePostForEvent, generatePostForFacilities, generatePostForPolicyNews, generatePostForCheongyakGuide, generatePostForLhNotice } from './lib/generateContent.js';
 import { publishPost, fetchTodayPosts } from './lib/blogger.js';
+
+const CHEONGYAK_TOPICS = JSON.parse(readFileSync(new URL('./topics-cheongyak.json', import.meta.url)));
 
 const DELAY_BETWEEN_POSTS = 8000;
 
@@ -161,6 +165,51 @@ async function runFacilityPipeline(alreadyPostedCount = 0) {
   }
 }
 
+// ─── 청약 가이드 파이프라인 (매일 11:00) ─────────────────────────────────────
+
+async function runCheongyakGuidePipeline() {
+  const topicIndex = Math.floor(Date.now() / 86400000) % CHEONGYAK_TOPICS.length;
+  const topic = CHEONGYAK_TOPICS[topicIndex];
+  console.log(`모드: 청약 가이드 — 오늘 주제: "${topic}"`);
+
+  try {
+    const post = await generatePostForCheongyakGuide(topic);
+    const published = await publishPost(post);
+    return { count: 1, posts: [{ title: post.title, url: published.url }], error: null };
+  } catch (err) {
+    console.error(`  [오류] 청약가이드 포스트 실패: ${err.message}`);
+    return { count: 0, posts: [], error: `청약가이드 포스트 실패: ${err.message}` };
+  }
+}
+
+// ─── LH 공고 파이프라인 (매일 18:00) ─────────────────────────────────────────
+
+async function runLhNoticePipeline() {
+  console.log('모드: LH·SH 청약 공고');
+
+  let notices;
+  try {
+    notices = await fetchLhNotices();
+  } catch (err) {
+    console.log(`[lhData] 수집 실패 (청약가이드로 대체): ${err.message}`);
+    return runCheongyakGuidePipeline();
+  }
+
+  if (!notices.length) {
+    console.log('[lhData] 공고 없음 — 청약가이드 파이프라인으로 대체');
+    return runCheongyakGuidePipeline();
+  }
+
+  try {
+    const post = await generatePostForLhNotice(notices);
+    const published = await publishPost(post);
+    return { count: 1, posts: [{ title: post.title, url: published.url }], error: null };
+  } catch (err) {
+    console.error(`  [오류] LH공고 포스트 실패: ${err.message}`);
+    return { count: 0, posts: [], error: `LH공고 포스트 실패: ${err.message}` };
+  }
+}
+
 // ─── 정책뉴스 파이프라인 (토요일) ─────────────────────────────────────────────
 
 async function runPolicyNewsPipeline(alreadyPostedCount = 0) {
@@ -213,7 +262,11 @@ async function main() {
 
   let result;
 
-  if (dayOfWeek === 2 || dayOfWeek === 4) {
+  if (kstHour === 11) {
+    result = await runCheongyakGuidePipeline();
+  } else if (kstHour === 18) {
+    result = await runLhNoticePipeline();
+  } else if (dayOfWeek === 2 || dayOfWeek === 4) {
     console.log('모드: 구별 무료 문화 프로그램 모음');
     result = await runFacilityPipeline(alreadyPostedCount);
   } else if (dayOfWeek === 6) {
