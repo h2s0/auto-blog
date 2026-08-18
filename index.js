@@ -64,6 +64,34 @@ function prependImage(html, imageUrl, altText) {
   return img + html;
 }
 
+// 카테고리 라벨이 없으면 추가
+function ensureLabel(labels, label) {
+  return labels.includes(label) ? labels : [...labels, label];
+}
+
+// 무료공간 포스트: h3 앞에 줄바꿈 + h3 뒤에 시설별 이미지 삽입
+function insertFacilityExtras(html, facilities) {
+  let idx = 0;
+  return html.replace(/<h3>([\s\S]*?)<\/h3>/g, (match) => {
+    const isFirst = idx === 0;
+    const f = facilities[idx] || null;
+    idx++;
+
+    const breakHtml = isFirst ? '' : '\n<p><br></p>\n';
+    if (!f) return `${breakHtml}${match}`;
+
+    const imageUrl = f.imageUrl || generateThumbnailSvg({
+      title: f.name || '',
+      subtitle: f.targetAudience || f.place || '',
+      category: '무료 프로그램',
+    });
+    const safeAlt = (f.name || '').replace(/"/g, '&quot;');
+    const imgHtml = `\n<p><img src="${imageUrl}" alt="${safeAlt}" width="1200" height="630" style="max-width:100%;height:auto;border-radius:8px;" /></p>`;
+
+    return `${breakHtml}${match}${imgHtml}`;
+  });
+}
+
 // ─── 오늘 발행된 포스트 제목 목록 조회 (중복 방지) ────────────────────────────
 
 async function getPostedTitlesCount() {
@@ -104,6 +132,7 @@ async function runEventPipeline(alreadyPostedTitles = [], runIndex = 0) {
     ]);
 
     const post = await generatePostForEvent(event, scrapedText, parkingLots);
+    post.labels = ensureLabel(post.labels, '서울 문화행사');
 
     const imageUrl = pickImage(event, ogImage);
     if (imageUrl) {
@@ -155,20 +184,17 @@ async function runFacilityPipeline(alreadyPostedCount = 0) {
 
     try {
       const post = await generatePostForFacilities(district, facilities, parkingMap);
+      post.labels = ensureLabel(post.labels, '무료 문화 프로그램');
 
-      const imageUrl = facilities[0]?.imageUrl || null;
-      if (imageUrl) {
-        post.html = prependImage(post.html, imageUrl, `${district} 무료 문화 프로그램`);
-        console.log(`  이미지 첨부: ${imageUrl}`);
-      } else {
-        const thumbUrl = generateThumbnailSvg({
-          title: `${district} 무료 문화 프로그램`,
-          category: '무료 프로그램',
-          district,
-        });
-        post.html = prependImage(post.html, thumbUrl, `${district} 무료 문화 프로그램`);
-        console.log('  SVG 썸네일 생성');
-      }
+      // 시설별 줄바꿈 + 개별 이미지
+      post.html = insertFacilityExtras(post.html, facilities);
+      // 포스트 상단 대표 썸네일
+      post.html = prependImage(post.html, generateThumbnailSvg({
+        title: `${district} 무료 문화 프로그램`,
+        category: '무료 프로그램',
+        district,
+      }), `${district} 무료 문화 프로그램`);
+      console.log(`  시설별 이미지 삽입: ${facilities.length}개`);
 
       const published = await publishPost(post);
       return { count: 1, posts: [{ title: post.title, url: published.url }], error: null };
@@ -191,6 +217,7 @@ async function runCheongyakGuidePipeline() {
 
   try {
     const post = await generatePostForCheongyakGuide(topic);
+    post.labels = ensureLabel(post.labels, '청약·부동산');
     post.html = prependImage(post.html, generateThumbnailSvg({
       title: topic,
       subtitle: '청약 가이드',
@@ -225,6 +252,7 @@ async function runLhNoticePipeline() {
 
   try {
     const post = await generatePostForLhNotice(notices);
+    post.labels = ensureLabel(post.labels, '청약·부동산');
     post.html = prependImage(post.html, generateThumbnailSvg({
       title: 'LH·SH 청약 공고',
       subtitle: '공공임대·분양 신청 정보',
@@ -262,6 +290,7 @@ async function runPolicyNewsPipeline(alreadyPostedCount = 0) {
 
   try {
     const post = await generatePostForPolicyNews(newsItems);
+    post.labels = ensureLabel(post.labels, '정책뉴스');
     post.html = prependImage(post.html, generateThumbnailSvg({
       title: '오늘의 정책 뉴스',
       subtitle: '서울 시민 생활 정보',
