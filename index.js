@@ -8,6 +8,7 @@ import { scrapeEventPage } from './lib/scraper.js';
 import { findNearbyParking } from './lib/parking.js';
 import { generatePostForEvent, generatePostForFacilities, generatePostForPolicyNews, generatePostForCheongyakGuide, generatePostForLhNotice } from './lib/generateContent.js';
 import { publishPost, fetchTodayPosts } from './lib/blogger.js';
+import { generateThumbnailSvg } from './lib/thumbnail.js';
 
 const CHEONGYAK_TOPICS = JSON.parse(readFileSync(new URL('./topics-cheongyak.json', import.meta.url)));
 
@@ -58,7 +59,8 @@ function pickImage(event, ogImage) {
 
 function prependImage(html, imageUrl, altText) {
   if (!imageUrl) return html;
-  const img = `<p><img src="${imageUrl}" alt="${altText}" style="max-width:100%;height:auto;border-radius:8px;" /></p>\n`;
+  const safeAlt = String(altText || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const img = `<p><img src="${imageUrl}" alt="${safeAlt}" width="1200" height="630" style="max-width:100%;height:auto;border-radius:8px;" /></p>\n`;
   return img + html;
 }
 
@@ -108,7 +110,14 @@ async function runEventPipeline(alreadyPostedTitles = [], runIndex = 0) {
       post.html = prependImage(post.html, imageUrl, event.title);
       console.log(`  이미지 첨부: ${imageUrl}`);
     } else {
-      console.log('  이미지 없음');
+      const thumbUrl = generateThumbnailSvg({
+        title: event.title,
+        category: event.category,
+        district: event.district,
+        isFree: event.isFree,
+      });
+      post.html = prependImage(post.html, thumbUrl, event.title);
+      console.log('  SVG 썸네일 생성');
     }
 
     const published = await publishPost(post);
@@ -151,6 +160,14 @@ async function runFacilityPipeline(alreadyPostedCount = 0) {
       if (imageUrl) {
         post.html = prependImage(post.html, imageUrl, `${district} 무료 문화 프로그램`);
         console.log(`  이미지 첨부: ${imageUrl}`);
+      } else {
+        const thumbUrl = generateThumbnailSvg({
+          title: `${district} 무료 문화 프로그램`,
+          category: '무료 프로그램',
+          district,
+        });
+        post.html = prependImage(post.html, thumbUrl, `${district} 무료 문화 프로그램`);
+        console.log('  SVG 썸네일 생성');
       }
 
       const published = await publishPost(post);
@@ -174,6 +191,12 @@ async function runCheongyakGuidePipeline() {
 
   try {
     const post = await generatePostForCheongyakGuide(topic);
+    post.html = prependImage(post.html, generateThumbnailSvg({
+      title: topic,
+      subtitle: '청약 가이드',
+      category: '청약 가이드',
+    }), topic);
+    console.log('  SVG 썸네일 생성');
     const published = await publishPost(post);
     return { count: 1, posts: [{ title: post.title, url: published.url }], error: null };
   } catch (err) {
@@ -202,6 +225,12 @@ async function runLhNoticePipeline() {
 
   try {
     const post = await generatePostForLhNotice(notices);
+    post.html = prependImage(post.html, generateThumbnailSvg({
+      title: 'LH·SH 청약 공고',
+      subtitle: '공공임대·분양 신청 정보',
+      category: 'LH공고',
+    }), 'LH·SH 청약 공고');
+    console.log('  SVG 썸네일 생성');
     const published = await publishPost(post);
     return { count: 1, posts: [{ title: post.title, url: published.url }], error: null };
   } catch (err) {
@@ -233,6 +262,12 @@ async function runPolicyNewsPipeline(alreadyPostedCount = 0) {
 
   try {
     const post = await generatePostForPolicyNews(newsItems);
+    post.html = prependImage(post.html, generateThumbnailSvg({
+      title: '오늘의 정책 뉴스',
+      subtitle: '서울 시민 생활 정보',
+      category: '정책뉴스',
+    }), '오늘의 정책 뉴스');
+    console.log('  SVG 썸네일 생성');
     const published = await publishPost(post);
     return { count: 1, posts: [{ title: post.title, url: published.url }], error: null };
   } catch (err) {
