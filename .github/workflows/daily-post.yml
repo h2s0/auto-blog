@@ -1,17 +1,9 @@
-name: 서울 문화행사 블로그 자동 발행
+name: 서울 소식 블로그 자동 발행
 
 on:
   schedule:
-    # KST 09:00 (UTC 00:00) — 매일: 문화행사/무료공간/정책뉴스 (요일별)
+    # KST 09:00 (UTC 00:00) — 매일 1회 실행, 4개 글 예약 발행
     - cron: "0 0 * * *"
-    # KST 11:00 (UTC 02:00) — 매일: 청약 가이드
-    - cron: "0 2 * * *"
-    # KST 12:00 (UTC 03:00) — 일/월/수/금: 문화행사 2번째
-    - cron: "0 3 * * 0,1,3,5"
-    # KST 15:00 (UTC 06:00) — 매일: 문화행사/무료공간/정책뉴스 (요일별)
-    - cron: "0 6 * * *"
-    # KST 18:00 (UTC 09:00) — 매일: LH·SH 청약 공고
-    - cron: "0 9 * * *"
   workflow_dispatch:
 
 jobs:
@@ -41,5 +33,4 @@ jobs:
           KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
           POLICY_NEWS_API_KEY: ${{ secrets.POLICY_NEWS_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          BLOGGER_IS_DRAFT: "false"
         run: node index.js
