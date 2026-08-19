@@ -107,7 +107,14 @@ async function getPostedTitlesCount() {
 // ─── 문화행사 파이프라인 (월/수/금/일 + 기본값) ──────────────────────────────
 
 async function runEventPipeline(alreadyPostedTitles = [], runIndex = 0) {
-  const allEvents = await fetchTodayEvents();
+  let allEvents;
+  try {
+    allEvents = await fetchTodayEvents();
+  } catch (err) {
+    console.log(`[seoulData] API 오류 — 청약가이드로 대체: ${err.message}`);
+    return runCheongyakGuidePipeline();
+  }
+
   if (allEvents.length === 0) {
     console.log('오늘 진행 중인 행사가 없습니다. 종료합니다.');
     return { count: 0, posts: [], error: null };
