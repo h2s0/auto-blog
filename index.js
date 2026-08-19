@@ -217,9 +217,16 @@ async function runFacilityPipeline(alreadyPostedCount = 0) {
 
 // ─── 청약 가이드 파이프라인 (매일 11:00) ─────────────────────────────────────
 
-async function runCheongyakGuidePipeline() {
-  const topicIndex = Math.floor(Date.now() / 86400000) % CHEONGYAK_TOPICS.length;
-  const topic = CHEONGYAK_TOPICS[topicIndex];
+async function runCheongyakGuidePipeline(alreadyPostedTitles = []) {
+  let topicIndex = Math.floor(Date.now() / 86400000) % CHEONGYAK_TOPICS.length;
+  let topic = CHEONGYAK_TOPICS[topicIndex];
+
+  // 오늘 이미 같은 청약 주제가 발행됐으면 다음 주제 사용
+  if (alreadyPostedTitles.some((t) => t.includes(topic.substring(0, 8)))) {
+    topicIndex = (topicIndex + 1) % CHEONGYAK_TOPICS.length;
+    topic = CHEONGYAK_TOPICS[topicIndex];
+    console.log(`  중복 주제 감지 — 다음 주제로 대체: "${topic}"`);
+  }
   console.log(`모드: 청약 가이드 — 오늘 주제: "${topic}"`);
 
   try {
@@ -241,7 +248,7 @@ async function runCheongyakGuidePipeline() {
 
 // ─── LH 공고 파이프라인 (매일 18:00) ─────────────────────────────────────────
 
-async function runLhNoticePipeline() {
+async function runLhNoticePipeline(alreadyPostedTitles = []) {
   console.log('모드: LH·SH 청약 공고');
 
   let notices;
@@ -249,12 +256,12 @@ async function runLhNoticePipeline() {
     notices = await fetchLhNotices();
   } catch (err) {
     console.log(`[lhData] 수집 실패 (청약가이드로 대체): ${err.message}`);
-    return runCheongyakGuidePipeline();
+    return runCheongyakGuidePipeline(alreadyPostedTitles);
   }
 
   if (!notices.length) {
     console.log('[lhData] 공고 없음 — 청약가이드 파이프라인으로 대체');
-    return runCheongyakGuidePipeline();
+    return runCheongyakGuidePipeline(alreadyPostedTitles);
   }
 
   try {
@@ -334,9 +341,9 @@ async function main() {
   let result;
 
   if (kstHour === 11) {
-    result = await runCheongyakGuidePipeline();
+    result = await runCheongyakGuidePipeline(alreadyPostedTitles);
   } else if (kstHour === 18) {
-    result = await runLhNoticePipeline();
+    result = await runLhNoticePipeline(alreadyPostedTitles);
   } else if (dayOfWeek === 2 || dayOfWeek === 4) {
     console.log('모드: 구별 무료 문화 프로그램 모음');
     result = await runFacilityPipeline(alreadyPostedCount);
