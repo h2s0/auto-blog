@@ -202,12 +202,15 @@ async function main() {
     console.log(`[중복방지] 조회 실패 (무시): ${e.message}`);
   }
 
+  // 이번 실행 중 발행된 제목 누적 (recentTitles 포함) → 슬롯 간 중복 방지
+  const publishedTitles = [...recentTitles];
+
   // 4개 슬롯 정의: { hour, label, build }
   const slots = [
-    { hour: 9,  label: '09:00 서울 문화행사',    build: () => buildEventPost(recentTitles) },
-    { hour: 12, label: '12:00 청약 가이드',       build: () => buildCheongyakPost(recentTitles) },
+    { hour: 9,  label: '09:00 서울 문화행사',    build: () => buildEventPost(publishedTitles) },
+    { hour: 12, label: '12:00 청약 가이드',       build: () => buildCheongyakPost(publishedTitles) },
     { hour: 15, label: '15:00 서울 정책·복지',    build: () => buildPolicyPost() },
-    { hour: 18, label: '18:00 LH·SH 청약 공고',   build: () => buildLhPost(recentTitles) },
+    { hour: 18, label: '18:00 LH·SH 청약 공고',   build: () => buildLhPost(publishedTitles) },
   ];
 
   const published = [];
@@ -225,6 +228,7 @@ async function main() {
       const publishTime = scheduleAt(kstDateStr, slot.hour);
       const result = await publishPost({ ...post, scheduledAt: publishTime });
       published.push({ title: result.title, url: result.url, scheduledLabel: slot.label });
+      publishedTitles.push(result.title); // 다음 슬롯 중복 체크에 포함
     } catch (err) {
       console.error(`  [오류] ${slot.label}: ${err.message}`);
       errors.push(`${slot.label}: ${err.message}`);
