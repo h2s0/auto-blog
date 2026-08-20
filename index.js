@@ -29,12 +29,12 @@ function ensureLabel(labels, label) {
   return labels.includes(label) ? labels : [...labels, label];
 }
 
-// h2/h3 앞에 줄바꿈 삽입 (첫 번째 제외) — 가독성 개선
+// h2 앞에 빈 줄 2개 삽입 (첫 번째 제외) — 섹션 간 가독성 개선
 function addHeadingBreaks(html) {
   let first = true;
   return html.replace(/<h2/g, (match) => {
     if (first) { first = false; return match; }
-    return '<p><br></p>' + match;
+    return '<p><br></p><p><br></p>' + match;
   });
 }
 
