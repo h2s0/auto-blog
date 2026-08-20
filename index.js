@@ -125,13 +125,18 @@ async function buildCheongyakPost(recentTitles) {
   let topicIndex = Math.floor(Date.now() / 86400000) % CHEONGYAK_TOPICS.length;
   let topic = CHEONGYAK_TOPICS[topicIndex];
 
-  // 최근 7일 내 같은 주제가 이미 있으면 다음 토픽
-  if (recentTitles.some((t) => t.includes(topic.substring(0, 8)))) {
+  // 최근 7일 내 같은 주제가 이미 있으면 다음 토픽으로 순환
+  let attempts = 0;
+  while (
+    recentTitles.some((t) => t.includes(topic.substring(0, 8))) &&
+    attempts < CHEONGYAK_TOPICS.length
+  ) {
     topicIndex = (topicIndex + 1) % CHEONGYAK_TOPICS.length;
     topic = CHEONGYAK_TOPICS[topicIndex];
-    console.log(`[slot2] 중복 주제 → 다음 토픽으로: "${topic}"`);
+    attempts++;
+    console.log(`[cheongyak] 중복 주제 → 다음 토픽으로 (${attempts}): "${topic}"`);
   }
-  console.log(`[slot2] 청약 가이드 주제: "${topic}"`);
+  console.log(`[cheongyak] 청약 가이드 주제: "${topic}"`);
 
   const post = await generatePostForCheongyakGuide(topic);
   post.labels = ensureLabel(post.labels, '청약·부동산');
