@@ -29,6 +29,15 @@ function ensureLabel(labels, label) {
   return labels.includes(label) ? labels : [...labels, label];
 }
 
+// h2/h3 앞에 줄바꿈 삽입 (첫 번째 제외) — 가독성 개선
+function addHeadingBreaks(html) {
+  let first = true;
+  return html.replace(/<h2/g, (match) => {
+    if (first) { first = false; return match; }
+    return '<p><br></p>' + match;
+  });
+}
+
 /**
  * KST 기준 오늘 날짜 문자열로 예약 시각 Date 반환
  * @param {string} kstDateStr - "2026-08-20"
@@ -106,7 +115,7 @@ async function buildEventPost(recentTitles) {
 
   const imageUrl = event.imageUrl || ogImage
     || generateThumbnailSvg({ title: event.title, category: event.category, district: event.district, isFree: event.isFree });
-  post.html = prependImage(post.html, imageUrl, event.title);
+  post.html = prependImage(addHeadingBreaks(post.html), imageUrl, event.title);
   return post;
 }
 
@@ -126,7 +135,7 @@ async function buildCheongyakPost(recentTitles) {
 
   const post = await generatePostForCheongyakGuide(topic);
   post.labels = ensureLabel(post.labels, '청약·부동산');
-  post.html = prependImage(post.html, generateThumbnailSvg({
+  post.html = prependImage(addHeadingBreaks(post.html), generateThumbnailSvg({
     title: topic, subtitle: '청약 가이드', category: '청약 가이드',
   }), topic);
   return post;
@@ -143,15 +152,15 @@ async function buildPolicyPost() {
     return null;
   }
 
-  if (!newsItems || newsItems.length < 2) {
-    console.log('[slot3] 정책뉴스 부족 — 건너뜀');
+  if (!newsItems || newsItems.length < 1) {
+    console.log('[slot3] 정책뉴스 없음 — 건너뜀');
     return null;
   }
 
   console.log(`[slot3] 정책뉴스 ${newsItems.length}건 수집`);
   const post = await generatePostForPolicyNews(newsItems);
   post.labels = ensureLabel(post.labels, '정책뉴스');
-  post.html = prependImage(post.html, generateThumbnailSvg({
+  post.html = prependImage(addHeadingBreaks(post.html), generateThumbnailSvg({
     title: '오늘의 정책 뉴스', subtitle: '서울 시민 생활 정보', category: '정책뉴스',
   }), '오늘의 정책 뉴스');
   return post;
@@ -176,7 +185,7 @@ async function buildLhPost(recentTitles) {
   console.log(`[slot4] LH 공고 ${notices.length}건`);
   const post = await generatePostForLhNotice(notices);
   post.labels = ensureLabel(post.labels, '청약·부동산');
-  post.html = prependImage(post.html, generateThumbnailSvg({
+  post.html = prependImage(addHeadingBreaks(post.html), generateThumbnailSvg({
     title: 'LH·SH 청약 공고', subtitle: '공공임대·분양 신청 정보', category: 'LH공고',
   }), 'LH·SH 청약 공고');
   return post;
