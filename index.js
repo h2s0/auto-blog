@@ -105,7 +105,6 @@ async function buildEventPost(recentTitles) {
   post.labels = ensureLabel(post.labels, '서울 문화행사');
 
   const imageUrl = event.imageUrl || ogImage
-    || await getPostImage(event.category, event.title)
     || generateThumbnailSvg({ title: event.title, category: event.category, district: event.district, isFree: event.isFree });
   post.html = prependImage(post.html, imageUrl, event.title);
   return post;
@@ -127,9 +126,9 @@ async function buildCheongyakPost(recentTitles) {
 
   const post = await generatePostForCheongyakGuide(topic);
   post.labels = ensureLabel(post.labels, '청약·부동산');
-  const cheongyakImg = await getPostImage('청약 가이드', topic)
-    || generateThumbnailSvg({ title: topic, subtitle: '청약 가이드', category: '청약 가이드' });
-  post.html = prependImage(post.html, cheongyakImg, topic);
+  post.html = prependImage(post.html, generateThumbnailSvg({
+    title: topic, subtitle: '청약 가이드', category: '청약 가이드',
+  }), topic);
   return post;
 }
 
@@ -152,10 +151,9 @@ async function buildPolicyPost() {
   console.log(`[slot3] 정책뉴스 ${newsItems.length}건 수집`);
   const post = await generatePostForPolicyNews(newsItems);
   post.labels = ensureLabel(post.labels, '정책뉴스');
-  const policyKeyword = newsItems[0]?.title?.substring(0, 15) ?? '서울 복지 혜택';
-  const policyImg = await getPostImage('정책뉴스', policyKeyword)
-    || generateThumbnailSvg({ title: '오늘의 정책 뉴스', subtitle: '서울 시민 생활 정보', category: '정책뉴스' });
-  post.html = prependImage(post.html, policyImg, '오늘의 정책 뉴스');
+  post.html = prependImage(post.html, generateThumbnailSvg({
+    title: '오늘의 정책 뉴스', subtitle: '서울 시민 생활 정보', category: '정책뉴스',
+  }), '오늘의 정책 뉴스');
   return post;
 }
 
@@ -178,9 +176,9 @@ async function buildLhPost(recentTitles) {
   console.log(`[slot4] LH 공고 ${notices.length}건`);
   const post = await generatePostForLhNotice(notices);
   post.labels = ensureLabel(post.labels, '청약·부동산');
-  const lhImg = await getPostImage('LH공고', 'LH 공공임대 아파트')
-    || generateThumbnailSvg({ title: 'LH·SH 청약 공고', subtitle: '공공임대·분양 신청 정보', category: 'LH공고' });
-  post.html = prependImage(post.html, lhImg, 'LH·SH 청약 공고');
+  post.html = prependImage(post.html, generateThumbnailSvg({
+    title: 'LH·SH 청약 공고', subtitle: '공공임대·분양 신청 정보', category: 'LH공고',
+  }), 'LH·SH 청약 공고');
   return post;
 }
 
