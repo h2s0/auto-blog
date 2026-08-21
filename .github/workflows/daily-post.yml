@@ -33,4 +33,5 @@ jobs:
           KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
           POLICY_NEWS_API_KEY: ${{ secrets.POLICY_NEWS_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: node index.js
