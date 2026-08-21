@@ -34,7 +34,7 @@ function addHeadingBreaks(html) {
   let first = true;
   return html.replace(/<h2/g, (match) => {
     if (first) { first = false; return match; }
-    return '<p><br></p><p><br></p>' + match;
+    return '<p><br></p>' + match;
   });
 }
 
